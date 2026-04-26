@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reasoning 01 — Test-Time Compute &amp; the o1/R1 Paradigm</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-card: #0d1117;
+            --bg-code: #161b22;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #76B900;
+            --accent-dim: #76B90044;
+            --accent-glow: #76B90033;
+            --border: #21262d;
+            --font-display: 'Space Grotesk', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --font-body: 'Inter', sans-serif;
+            --max-width: 900px;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 17px;
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .series-label {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+        }
+        .hero h1 .accent { color: var(--accent); }
+        .hero .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 640px;
+            margin-bottom: 2rem;
+        }
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 2.5rem;
+        }
+        .tag {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+            white-space: nowrap;
+        }
+        .pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25rem;
+            margin-bottom: 1rem;
+            max-width: var(--max-width);
+        }
+        .pipeline-step {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 0.3rem 0.7rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .pipeline-arrow { color: var(--accent); font-size: 0.9rem; font-weight: 700; }
+        .slide {
+            min-height: 100vh;
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 4rem 1.5rem;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .slide-number {
+            font-family: var(--font-display);
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--accent-dim);
+            position: absolute;
+            top: 2rem;
+            right: 1.5rem;
+            line-height: 1;
+            user-select: none;
+        }
+        .slide h2 {
+            font-family: var(--font-display);
+            font-size: 1.9rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            line-height: 1.25;
+        }
+        .slide h3 {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .slide p { margin-bottom: 1rem; color: var(--text-secondary); }
+        .slide p strong { color: var(--text-primary); }
+        .slide ul, .slide ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+        .slide li { margin-bottom: 0.4rem; }
+        .slide li strong { color: var(--text-primary); }
+        .slide code {
+            font-family: var(--font-mono);
+            font-size: 0.88em;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            padding: 0.05rem 0.35rem;
+            border-radius: 3px;
+            color: #c9d1d9;
+        }
+        .code-block {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 1.25rem 0;
+            overflow: hidden;
+        }
+        .code-header {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            background: rgba(118, 185, 0, 0.08);
+            padding: 0.4rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .code-block pre { margin: 0; padding: 1rem; overflow-x: auto; }
+        .code-block code {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: #c9d1d9;
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+        .kw { color: #ff7b72; }
+        .fn { color: #d2a8ff; }
+        .str { color: #a5d6ff; }
+        .cm { color: #8b949e; font-style: italic; }
+        .num { color: #79c0ff; }
+        .type { color: #ffa657; }
+        .dir { color: #ff7b72; }
+        .mac { color: #ffa657; }
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1.25rem 0;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th {
+            background: var(--bg-code);
+            color: var(--accent);
+            font-weight: 600;
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-display);
+            white-space: nowrap;
+        }
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: rgba(13, 17, 23, 0.5); }
+        .diagram-flow {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-box {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-align: center;
+            white-space: nowrap;
+        }
+        .diagram-box.accent { border-color: var(--accent); color: var(--accent); background: rgba(118, 185, 0, 0.08); }
+        .diagram-box.dim { color: var(--text-secondary); border-color: var(--border); }
+        .diagram-arrow { color: var(--accent); font-size: 1.3rem; font-weight: 700; }
+        .diagram-vertical {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.3rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-vertical .diagram-arrow { font-size: 1.1rem; }
+        .hierarchy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .hierarchy-level { display: flex; align-items: center; gap: 0.75rem; }
+        .hierarchy-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            min-width: 80px;
+            text-align: right;
+        }
+        .hierarchy-items { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+        .hierarchy-item {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        .hierarchy-item.accent { border-color: var(--accent); color: var(--accent); background: rgba(118, 185, 0, 0.08); }
+        .diagram-grid {
+            display: grid;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        .diagram-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+        .diagram-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .diagram-panel {
+            padding: 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .diagram-panel.accent-border { border-left: 3px solid var(--accent); }
+        .diagram-panel h4 {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        .diagram-panel p, .diagram-panel ul { font-size: 0.85rem; }
+        .callout {
+            background: var(--bg-card);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 1rem 1.25rem;
+            margin: 1.25rem 0;
+        }
+        .callout p { margin-bottom: 0; }
+        .callout p + p { margin-top: 0.5rem; }
+        .callout .callout-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.3rem;
+        }
+        .contents-list { list-style: none; padding-left: 0; counter-reset: contents; }
+        .contents-list li {
+            counter-increment: contents;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .contents-list li:last-child { border-bottom: none; }
+        .contents-list li::before {
+            content: counter(contents, decimal-leading-zero);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            min-width: 2rem;
+        }
+        .contents-list a { color: var(--text-primary); text-decoration: none; transition: color 0.2s; }
+        .contents-list a:hover { color: var(--accent); }
+        .footer {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            max-width: var(--max-width);
+            margin: 0 auto;
+        }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+        .canvas-wrap {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.25rem 0;
+            overflow-x: auto;
+        }
+        .canvas-wrap canvas, .canvas-wrap svg { display: block; margin: 0 auto; max-width: 100%; }
+        .badge {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: middle;
+            margin-left: 0.3rem;
+        }
+        .badge.ok    { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+        .badge.warn  { border-color: #ffa657; color: #ffa657; background: rgba(255,166,87,0.08); }
+        .badge.bad   { border-color: #ff7b72; color: #ff7b72; background: rgba(255,123,114,0.08); }
+        @media (max-width: 640px) {
+            .slide { padding: 3rem 1rem; min-height: auto; }
+            .slide-number { font-size: 3rem; top: 1.5rem; right: 1rem; }
+            .slide h2 { font-size: 1.5rem; }
+            .diagram-grid.cols-2, .diagram-grid.cols-3 { grid-template-columns: 1fr; }
+            .pipeline { gap: 0.15rem; }
+            .pipeline-step { font-size: 0.6rem; padding: 0.2rem 0.4rem; }
+            .hero h1 { font-size: 1.8rem; }
+            table { font-size: 0.78rem; }
+        }
+    </style>
+</head>
+<body>
+<header class="hero">
+    <div class="series-label">Reasoning Models Series &mdash; Presentation 01</div>
+    <h1>The <span class="accent">Test-Time Compute</span> Paradigm Shift</h1>
+    <p class="subtitle">o1, o3, DeepSeek-R1 &mdash; scaling inference compute rather than parameters, GRPO reinforcement learning, long thinking traces, and where the eval lift actually lands.</p>
+
+    <div class="tags">
+        <span class="tag">o1 / o3</span>
+        <span class="tag">DeepSeek-R1</span>
+        <span class="tag">GRPO</span>
+        <span class="tag">Test-Time Compute</span>
+        <span class="tag">Long CoT</span>
+        <span class="tag">AIME</span>
+        <span class="tag">SWE-bench</span>
+    </div>
+
+    <div class="pipeline">
+        <span class="pipeline-step">Prompt</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Think (hidden)</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">GRPO reward</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Policy update</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Longer trace</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Answer</span>
+    </div>
+</header>
+
+<section class="slide" id="slide-00">
+    <div class="slide-number">00</div>
+    <h2>Topics We'll Cover</h2>
+    <ul class="contents-list">
+        <li><a href="#slide-01">The o1/R1 Paradigm Shift</a></li>
+        <li><a href="#slide-02">Scaling Test-Time Compute vs Train-Time</a></li>
+        <li><a href="#slide-03">o1 / o3 &mdash; What's Public, What's Conjecture</a></li>
+        <li><a href="#slide-04">DeepSeek-R1 &mdash; Open Architecture &amp; GRPO Training</a></li>
+        <li><a href="#slide-05">Long Thinking Traces &amp; Max-Tokens Budget</a></li>
+        <li><a href="#slide-06">Cost &amp; Latency Reality</a></li>
+        <li><a href="#slide-07">Eval Lift &mdash; Maths, Coding vs Chat Performance</a></li>
+        <li><a href="#slide-08">Reasoning Models in Agentic Loops</a></li>
+        <li><a href="#slide-09">What to Take Away</a></li>
+    </ul>
+</section>
+
+<section class="slide" id="slide-01">
+    <div class="slide-number">01</div>
+    <h2>The o1/R1 Paradigm Shift</h2>
+    <p>From 2017 to 2023, the dominant scaling law was simple: bigger pre-training runs &rarr; smarter models. GPT-4 is roughly 10&times; more compute than GPT-3.5. The curve flattened &mdash; not because the law broke but because frontier training runs hit hundreds of millions of GPU-hours and data scarcity.</p>
+    <p>OpenAI's September 2024 release of <strong>o1-preview</strong> introduced a second axis: <em>how much compute you spend at inference time</em>. The model is trained to <strong>think before answering</strong> &mdash; emitting a long private chain-of-thought (&ldquo;thinking trace&rdquo;) before producing its visible reply. The trace is hidden from the user but consumes tokens.</p>
+
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>Pre-2024 paradigm</h4>
+            <p>Quality scales with <strong>training FLOPs</strong>. Larger model, more data, more tokens seen. Inference is cheap: 1&ndash;4 forward passes per user turn. RLHF aligns tone, not reasoning.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Post-o1 paradigm</h4>
+            <p>Quality scales with <strong>inference tokens</strong>. The same parameter count produces better answers by spending 100&times; more tokens on private reasoning. RL reward is <em>correctness of the final answer</em>, not human preference.</p>
+        </div>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">The key insight</div>
+        <p>Correctness on maths and coding is <em>verifiable</em>. A reward signal can be computed without human raters &mdash; just check the answer or run the tests. That makes large-scale RL tractable. Models trained this way learn to self-correct mid-trace, explore dead ends, and backtrack, mimicking what a human expert does on paper.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-02">
+    <div class="slide-number">02</div>
+    <h2>Scaling Test-Time Compute vs Train-Time</h2>
+    <p>Snell et al. (Google DeepMind, 2024) &mdash; <em>&ldquo;Scaling LLM Test-Time Compute Optimally&rdquo;</em> &mdash; showed that for a fixed total FLOP budget, reallocating compute from training to inference can match or beat a larger model on hard problems. The crossover depends on problem difficulty: easy problems don't benefit, hard ones benefit enormously.</p>
+
+    <div class="canvas-wrap">
+        <svg viewBox="0 0 700 260" width="700" height="260" xmlns="http://www.w3.org/2000/svg">
+            <style>
+                .ax { stroke: #30363d; stroke-width: 1; }
+                .gl { stroke: #21262d; stroke-width: 0.5; stroke-dasharray: 3 3; }
+                .lbl { fill: #8b949e; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+                .ttl { fill: #76B900; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; }
+                .ln1 { stroke: #76B900; stroke-width: 2; fill: none; }
+                .ln2 { stroke: #d2a8ff; stroke-width: 2; fill: none; stroke-dasharray: 6 3; }
+                .ln3 { stroke: #ffa657; stroke-width: 2; fill: none; }
+                .legbox { fill: #161b22; stroke: #21262d; }
+                .legtxt { fill: #8b949e; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+            </style>
+            <text x="10" y="18" class="ttl">Accuracy vs tokens spent at inference (schematic, MATH-500 regime)</text>
+            <line x1="60" y1="30" x2="60" y2="220" class="ax"/>
+            <line x1="60" y1="220" x2="660" y2="220" class="ax"/>
+            <line x1="60" y1="50"  x2="660" y2="50"  class="gl"/>
+            <line x1="60" y1="90"  x2="660" y2="90"  class="gl"/>
+            <line x1="60" y1="130" x2="660" y2="130" class="gl"/>
+            <line x1="60" y1="170" x2="660" y2="170" class="gl"/>
+            <text x="18" y="53"  class="lbl">95%</text>
+            <text x="18" y="93"  class="lbl">85%</text>
+            <text x="18" y="133" class="lbl">75%</text>
+            <text x="18" y="173" class="lbl">65%</text>
+            <text x="18" y="223" class="lbl">55%</text>
+            <text x="100" y="237" class="lbl">256 tok</text>
+            <text x="230" y="237" class="lbl">1 k tok</text>
+            <text x="380" y="237" class="lbl">4 k tok</text>
+            <text x="530" y="237" class="lbl">16 k tok</text>
+            <!-- Reasoning model (o1-style): rises steeply -->
+            <polyline points="70,200 180,170 300,130 450,75 620,52" class="ln1"/>
+            <!-- Base large model: flat-ish -->
+            <polyline points="70,150 180,145 300,140 450,138 620,135" class="ln2"/>
+            <!-- Smaller model best-of-N: moderate rise -->
+            <polyline points="70,185 180,165 300,150 450,142 620,138" class="ln3"/>
+            <rect x="460" y="40" width="190" height="72" rx="4" class="legbox"/>
+            <line x1="470" y1="55" x2="500" y2="55" style="stroke:#76B900;stroke-width:2;"/>
+            <text x="508" y="59" class="legtxt">Reasoning model (o1-style)</text>
+            <line x1="470" y1="75" x2="500" y2="75" style="stroke:#d2a8ff;stroke-width:2;stroke-dasharray:6 3;"/>
+            <text x="508" y="79" class="legtxt">Large base model (greedy)</text>
+            <line x1="470" y1="95" x2="500" y2="95" style="stroke:#ffa657;stroke-width:2;"/>
+            <text x="508" y="99" class="legtxt">Small model + best-of-N</text>
+        </svg>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">Two distinct mechanisms</div>
+        <p><strong>Sequential refinement</strong> (used by o1-style models): the model elaborates its answer in a single stream, revising mid-trace. Compute scales linearly with trace length but benefits compound non-linearly.</p>
+        <p><strong>Parallel sampling / best-of-N</strong>: sample K independent answers, pick the best via a verifier or majority vote. Embarrassingly parallel; benefits plateau around N&asymp;64 for most tasks.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-03">
+    <div class="slide-number">03</div>
+    <h2>o1 / o3 &mdash; What's Public, What's Conjecture</h2>
+    <p>OpenAI has published very little about o1's internals. The September 2024 system card and the December 2024 o1 technical report are the primary sources. Everything else is inference from behaviour and leaks.</p>
+
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Fact / datum</th><th>Source</th><th>Confidence</th></tr></thead>
+            <tbody>
+                <tr><td>Trained with large-scale RL; reward is answer correctness</td><td>o1 system card, 2024-09</td><td><span class="badge ok">confirmed</span></td></tr>
+                <tr><td>Thinking trace is hidden from users but counted in context</td><td>API docs &mdash; <code>reasoning_tokens</code> field</td><td><span class="badge ok">confirmed</span></td></tr>
+                <tr><td><code>reasoning_effort</code> param: <code>low</code> / <code>medium</code> / <code>high</code></td><td>OpenAI API reference, 2025-01</td><td><span class="badge ok">confirmed</span></td></tr>
+                <tr><td>o3 uses Monte-Carlo Tree Search over reasoning steps</td><td>Bloomberg / The Information, 2024-12</td><td><span class="badge warn">unconfirmed</span></td></tr>
+                <tr><td>o1 is a fine-tuned GPT-4o base, not a new architecture</td><td>widespread inference; no official statement</td><td><span class="badge warn">unconfirmed</span></td></tr>
+                <tr><td>o3 ARC-AGI score: 87.5% (high-compute) vs 75.7% (low)</td><td>OpenAI ARC-AGI eval post, 2024-12-20</td><td><span class="badge ok">confirmed</span></td></tr>
+                <tr><td>o3-mini matches o1 on AIME 2024 at &frac14; the cost</td><td>OpenAI technical report, 2025-01</td><td><span class="badge ok">confirmed</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">What the API exposes</div>
+        <p>The Chat Completions response for o-series models includes a <code>usage.completion_tokens_details</code> object with a <code>reasoning_tokens</code> integer. On a hard AIME problem this can be 8,000&ndash;30,000 tokens. The visible <code>content</code> reply might be 200 tokens. You pay for both at the same per-token rate.</p>
+    </div>
+
+    <div class="code-block">
+        <div class="code-header">OpenAI API &mdash; reasoning effort and token breakdown (Python SDK)</div>
+<pre><code><span class="kw">import</span> openai
+client = openai.<span class="type">OpenAI</span>()
+resp = client.chat.completions.<span class="fn">create</span>(
+    model=<span class="str">"o3-mini"</span>,
+    reasoning_effort=<span class="str">"high"</span>,          <span class="cm"># low | medium | high</span>
+    max_completion_tokens=<span class="num">16000</span>,
+    messages=[{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"Solve AIME 2024 II Problem 15."</span>}]
+)
+usage = resp.usage
+<span class="fn">print</span>(usage.prompt_tokens,
+      usage.completion_tokens,
+      usage.completion_tokens_details.reasoning_tokens)
+<span class="cm"># e.g.  42   14830   14620  (most tokens were thinking)</span></code></pre>
+    </div>
+</section>
+
+<section class="slide" id="slide-04">
+    <div class="slide-number">04</div>
+    <h2>DeepSeek-R1 &mdash; Open Architecture &amp; GRPO Training</h2>
+    <p>DeepSeek-R1 (January 2025) is the first high-quality open-weight reasoning model. Its technical report is unusually detailed. The model family sits on top of DeepSeek-V3 (671B MoE, 37B active parameters per token), and the reasoning capability is entirely RL-induced &mdash; no supervised long-CoT imitation at the base stage.</p>
+
+    <h3>GRPO &mdash; Group Relative Policy Optimisation</h3>
+    <p>Standard PPO requires a value (critic) network, doubling memory. GRPO (DeepSeek-Math, 2024) eliminates the critic by estimating the baseline from a <em>group</em> of K sampled responses to the same prompt:</p>
+
+    <div class="callout">
+        <div class="callout-label">GRPO reward formula</div>
+        <p>For a group of K outputs <em>o</em><sub>1</sub>&hellip;<em>o</em><sub>K</sub> with rewards <em>r</em><sub>i</sub>, the advantage is <strong>A<sub>i</sub> = (r<sub>i</sub> &minus; mean(r)) / std(r)</strong>. The policy gradient is then clipped PPO-style. No critic; baseline is within-group statistics.</p>
+    </div>
+
+    <div class="diagram-flow">
+        <div class="diagram-box accent">Prompt batch</div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">Sample K rollouts<br><small>K&asymp;8&ndash;16</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">Score each rollout<br><small>rule/format + correctness</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box accent">Compute group advantage</div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">PPO-clip update<br><small>&epsilon;=0.2, KL &beta;</small></div>
+    </div>
+
+    <h3>R1-Zero vs R1</h3>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>R1-Zero (pure RL)</h4>
+            <p>GRPO directly on DeepSeek-V3 base. No SFT cold-start. Emergent self-verification and aha-moment behaviours appear at &asymp;8k RL steps. Readable but sometimes switches languages mid-trace.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>R1 (cold-start SFT + RL)</h4>
+            <p>A small set (&sim;thousands) of human-curated long-CoT demonstrations bootstraps the policy before GRPO. Language stays consistent; readability improves. Published weights: 1.5B, 7B, 8B, 14B, 32B, 70B distillations from 671B.</p>
+        </div>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">Reward signals used in R1 training</div>
+        <p><strong>Format reward:</strong> trace must contain <code>&lt;think&gt;...&lt;/think&gt;</code> tags; answer must be boxed in <code>\boxed{}</code> for maths or wrapped in fenced code for coding. Pure rule-based. &nbsp;<strong>Correctness reward:</strong> exact match or unit-test pass. No neural judge for the primary RL phase.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-05">
+    <div class="slide-number">05</div>
+    <h2>Long Thinking Traces &amp; Max-Tokens Budget</h2>
+    <p>The thinking trace is the model's scratchpad. It is generated autoregressively before the final answer, typically enclosed in <code>&lt;think&gt;</code>&hellip;<code>&lt;/think&gt;</code> tags (R1 convention) or as hidden <code>reasoning_tokens</code> (o-series). The model learns to use this space for hypothesis generation, arithmetic, checking sub-results, and recovering from errors.</p>
+
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Model</th><th>Trace visibility</th><th>Max thinking tokens</th><th>How budget is set</th></tr></thead>
+            <tbody>
+                <tr><td>o1-mini</td><td>Hidden (<code>reasoning_tokens</code>)</td><td>&asymp;32k</td><td><code>reasoning_effort</code>: low/med/high maps to ~1k/4k/32k</td></tr>
+                <tr><td>o3 (API)</td><td>Hidden</td><td>&asymp;100k</td><td><code>reasoning_effort</code> or <code>max_completion_tokens</code></td></tr>
+                <tr><td>DeepSeek-R1</td><td>Visible in <code>&lt;think&gt;</code> block</td><td>32k (context window)</td><td><code>max_tokens</code>; model self-terminates <code>&lt;/think&gt;</code></td></tr>
+                <tr><td>Claude 3.7 Sonnet (extended thinking)</td><td>Visible in <code>thinking</code> content block</td><td>Up to 128k</td><td><code>thinking.budget_tokens</code> (1,024&ndash;128,000)</td></tr>
+                <tr><td>Qwen QwQ-32B</td><td>Visible; <code>&lt;think&gt;</code> tags</td><td>32k</td><td><code>max_tokens</code> on inference</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">Budget vs quality trade-off</div>
+        <p>Forcing a very short budget can hurt more than greedy decoding &mdash; the model learns to <em>meta-plan</em> its trace, so cutting it short mid-thought produces worse answers than no trace at all. The safe minimum for hard maths is &asymp;2,000 thinking tokens; for typical coding tasks &asymp;500.</p>
+    </div>
+
+    <div class="code-block">
+        <div class="code-header">Anthropic Python SDK &mdash; extended thinking (Claude 3.7 Sonnet)</div>
+<pre><code><span class="kw">import</span> anthropic
+client = anthropic.<span class="type">Anthropic</span>()
+resp = client.messages.<span class="fn">create</span>(
+    model=<span class="str">"claude-3-7-sonnet-20250219"</span>,
+    max_tokens=<span class="num">16000</span>,
+    thinking={<span class="str">"type"</span>: <span class="str">"enabled"</span>, <span class="str">"budget_tokens"</span>: <span class="num">10000</span>},
+    messages=[{<span class="str">"role"</span>: <span class="str">"user"</span>,
+               <span class="str">"content"</span>: <span class="str">"Prove that sqrt(2) is irrational."</span>}]
+)
+<span class="kw">for</span> block <span class="kw">in</span> resp.content:
+    <span class="kw">if</span> block.type == <span class="str">"thinking"</span>:
+        <span class="fn">print</span>(<span class="str">"trace:"</span>, block.thinking[:<span class="num">200</span>])
+    <span class="kw">else</span>:
+        <span class="fn">print</span>(<span class="str">"answer:"</span>, block.text)</code></pre>
+    </div>
+</section>
+
+<section class="slide" id="slide-06">
+    <div class="slide-number">06</div>
+    <h2>Cost &amp; Latency Reality</h2>
+    <p>Reasoning tokens are priced identically to output tokens. A single hard AIME problem with o3 at <code>high</code> effort can consume 20,000&ndash;60,000 reasoning tokens. At $15/M output tokens (o3 pricing as of 2025-Q1) that is <strong>$0.30&ndash;$0.90 per problem</strong>. For a 30-question AIME set: $9&ndash;$27. Batch API discounts (50%) bring this to ~$5&ndash;$14.</p>
+
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Model</th><th>Input $/M tok</th><th>Output $/M tok</th><th>Avg reasoning tok (hard maths)</th><th>Cost / hard problem</th></tr></thead>
+            <tbody>
+                <tr><td>o3-mini (medium effort)</td><td>$1.10</td><td>$4.40</td><td>&asymp;4,000</td><td>&asymp;$0.018</td></tr>
+                <tr><td>o3-mini (high effort)</td><td>$1.10</td><td>$4.40</td><td>&asymp;16,000</td><td>&asymp;$0.070</td></tr>
+                <tr><td>o3 (high effort)</td><td>$10</td><td>$40</td><td>&asymp;30,000</td><td>&asymp;$1.20</td></tr>
+                <tr><td>DeepSeek-R1 (API)</td><td>$0.55</td><td>$2.19</td><td>&asymp;8,000</td><td>&asymp;$0.018</td></tr>
+                <tr><td>Claude 3.7 Sonnet (10k budget)</td><td>$3</td><td>$15</td><td>&asymp;8,000</td><td>&asymp;$0.12</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">Latency is the harder constraint</div>
+        <p>Reasoning tokens are generated sequentially. At 60 tok/s output throughput, 30,000 thinking tokens &asymp; <strong>8 minutes time-to-first-visible-token</strong>. This makes o3 at high effort unsuitable for interactive pipelines. o3-mini at medium effort &asymp; 60&ndash;90 seconds. Streaming helps UX but doesn't reduce total latency.</p>
+    </div>
+
+    <div class="diagram-flow">
+        <div class="diagram-box">User sends prompt</div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box accent">Reasoning phase<br><small>hidden; 10s&ndash;8min</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">Visible answer streams<br><small>seconds</small></div>
+        <div class="diagram-arrow">&rarr;</div>
+        <div class="diagram-box">User sees result</div>
+    </div>
+</section>
+
+<section class="slide" id="slide-07">
+    <div class="slide-number">07</div>
+    <h2>Eval Lift &mdash; Maths, Coding vs Chat Performance</h2>
+    <p>The gains from reasoning models are highly domain-specific. AIME and competitive programming see dramatic lifts; conversational tasks see flat or negative results due to latency and over-thinking.</p>
+
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Benchmark</th><th>GPT-4o (greedy)</th><th>o1</th><th>o3-mini (high)</th><th>DeepSeek-R1</th></tr></thead>
+            <tbody>
+                <tr><td>AIME 2024 (pass@1)</td><td>9.3%</td><td>74.4%</td><td>87.3%</td><td>72.6%</td></tr>
+                <tr><td>MATH-500</td><td>76.6%</td><td>94.8%</td><td>97.2%</td><td>97.3%</td></tr>
+                <tr><td>SWE-bench Verified</td><td>38.8%</td><td>48.9%</td><td>49.3%</td><td>49.2%</td></tr>
+                <tr><td>Codeforces Percentile</td><td>11th</td><td>89th</td><td>93rd</td><td>96th</td></tr>
+                <tr><td>GPQA Diamond</td><td>53.6%</td><td>77.3%</td><td>79.7%</td><td>71.5%</td></tr>
+                <tr><td>MT-Bench (chat quality)</td><td>9.0</td><td>8.7</td><td>8.5</td><td>7.9</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">Why chat quality can regress</div>
+        <p>Reasoning models are RL-trained on verifiable rewards &mdash; which means <em>no reward signal for tone, style, concision, or helpfulness in open-ended conversation</em>. The model can over-plan, produce terse answers, or ignore formatting preferences. For creative writing or simple QA, a well-tuned chat model consistently wins.</p>
+    </div>
+
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>High-gain tasks</h4>
+            <ul>
+                <li>Competition maths (AIME, AMC, Olympiad)</li>
+                <li>Competitive programming (Codeforces Div1-D)</li>
+                <li>Formal verification &amp; proof writing</li>
+                <li>Hard-constraint optimisation</li>
+                <li>Multi-step reasoning under uncertainty</li>
+            </ul>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Low-gain or negative tasks</h4>
+            <ul>
+                <li>Conversational chat, customer support</li>
+                <li>Simple code-autocomplete</li>
+                <li>Creative writing, poetry</li>
+                <li>Factual QA from knowledge (RAG tasks)</li>
+                <li>Latency-sensitive interactive loops</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<section class="slide" id="slide-08">
+    <div class="slide-number">08</div>
+    <h2>Reasoning Models in Agentic Loops</h2>
+    <p>When a reasoning model is the planner in a multi-step agent, the interaction pattern changes significantly. The model's long thinking trace can incorporate tool results, plan sub-tasks, and revise the plan &mdash; all within a single generation. This collapses several turns of a classic ReAct loop into one.</p>
+
+    <div class="diagram-vertical">
+        <div class="diagram-box accent">User goal: &ldquo;Debug and fix the failing CI job&rdquo;</div>
+        <div class="diagram-arrow">&darr;</div>
+        <div class="diagram-box">Reasoning model receives full context + tool schemas</div>
+        <div class="diagram-arrow">&darr;</div>
+        <div class="diagram-box accent">Long thinking trace (hidden):<br>reads logs &rarr; hypothesises root cause &rarr; checks fix &rarr; revises &rarr; emits tool call sequence</div>
+        <div class="diagram-arrow">&darr;</div>
+        <div class="diagram-box">Tool calls emitted: <code>read_file</code>, <code>run_tests</code>, <code>edit_file</code>, <code>run_tests</code></div>
+        <div class="diagram-arrow">&darr;</div>
+        <div class="diagram-box">Results injected back; model may generate another thinking trace</div>
+        <div class="diagram-arrow">&darr;</div>
+        <div class="diagram-box accent">Final answer: diff + confirmation</div>
+    </div>
+
+    <div class="callout">
+        <div class="callout-label">Practical considerations in agentic use</div>
+        <p><strong>Context accumulation:</strong> reasoning tokens accumulate in the conversation window. A 128k-context model with 20k thinking tokens per turn exhausts context in &sim;6 agent steps before tool results are counted. Summarisation or sliding-window strategies are essential.</p>
+        <p><strong>Interleaved thinking + tools:</strong> Claude 3.7 Sonnet and R1 support thinking blocks <em>between</em> tool calls in the same turn. The model can think &rarr; call tool &rarr; think more &rarr; call tool &rarr; answer, all in one generation when the API permits it.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-09">
+    <div class="slide-number">09</div>
+    <h2>What to Take Away</h2>
+    <ul>
+        <li><strong>A new scaling axis.</strong> Test-time compute joins train-time compute as a primary quality lever. The two are complementary and have different cost profiles.</li>
+        <li><strong>RL on verifiable rewards is the unlock.</strong> Correctness of maths answers and unit-test pass are automatic reward signals &mdash; no human raters needed at scale. GRPO makes this efficient by eliminating the critic network.</li>
+        <li><strong>DeepSeek-R1 is the open benchmark.</strong> Trained on DeepSeek-V3 MoE (671B/37B active) with pure GRPO + lightweight cold-start SFT. Weights publicly available in 1.5B&ndash;70B distilled sizes.</li>
+        <li><strong>Thinking tokens cost real money.</strong> Budget for 5&ndash;30k reasoning tokens per hard query; at o3 pricing that is $0.20&ndash;$1.20 per query. Use <code>reasoning_effort: low</code> or set a <code>budget_tokens</code> cap in production.</li>
+        <li><strong>Latency is the real constraint in interactive settings.</strong> 20k tokens at 60 tok/s &asymp; 5.5 minutes to first visible token. Batch offline workloads; don't force o3 into a chat UX.</li>
+        <li><strong>Gains are domain-specific.</strong> AIME, Codeforces, GPQA: large lift. Chat, creative, simple QA: flat or negative. Pick the right tool.</li>
+    </ul>
+
+    <div class="callout">
+        <div class="callout-label">Where to next</div>
+        <p>Deck 02 examines the reward machinery in depth &mdash; PRMs vs ORMs, how MCTS-guided decoding works, and when verifier-based sampling beats self-consistency. Deck 03 addresses the deployment question: when do you reach for a reasoning model vs a frontier chat model plus a scaffold?</p>
+    </div>
+</section>
+
+<footer class="footer">
+    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Reasoning">Reasoning Models Series</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.8rem;"><a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Reasoning">Back to Series Index</a></p>
+</footer>
+<script>
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+            }
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.slide').forEach(slide => {
+        slide.style.opacity = '0';
+        slide.style.transform = 'translateY(30px)';
+        slide.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        observer.observe(slide);
+    });
+</script>
+</body>
+</html>
